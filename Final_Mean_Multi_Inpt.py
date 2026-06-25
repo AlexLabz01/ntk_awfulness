@@ -1,13 +1,15 @@
+import os
 import numpy as np
 import torch
 from typing import Optional
 import itertools
 from typing import Dict
 from typing import Tuple
-import numpy as np
 import torch.nn as nn
-from matplotlib import pyplot as plt
 
+import matplotlib
+matplotlib.use("Agg")  # needed for Killarney / SLURM jobs before importing pyplot
+from matplotlib import pyplot as plt
 #X,Y,Z tensors
 def compute_XII(H: torch.Tensor, eta: float) -> torch.Tensor:
     """
@@ -1737,181 +1739,430 @@ def compute_mean_output_neurons(
     return m_mean
 
 
+# if __name__ == "__main__":
+#     np.random.seed(44)
+#     torch.manual_seed(44)
+#     torch.set_num_threads(1)
+#
+#     # Ensemble code
+#     class SinNet(nn.Module):
+#         def __init__(self, input_dim, hidden_dim, num_hidden_layers):
+#             super(SinNet, self).__init__()
+#             layers = []
+#
+#             # first layer
+#             layers.append(nn.Linear(input_dim, hidden_dim, bias=False))
+#
+#             # rest of hidden layers
+#             for _ in range(num_hidden_layers - 1):
+#                 layers.append(nn.Linear(hidden_dim, hidden_dim, bias=False))
+#
+#             # output layer (scalar output)
+#             layers.append(nn.Linear(hidden_dim, 1, bias=False))
+#             self.layers = nn.ModuleList(layers)
+#
+#             # init as in your Test_three
+#             with torch.no_grad():
+#                 self.layers[0].weight.normal_(0.0, (1 / input_dim) ** 0.5)
+#                 for layer in self.layers[1:-1]:
+#                     layer.weight.normal_(0.0, (1 / hidden_dim) ** 0.5)
+#                 self.layers[-1].weight.normal_(0.0, (1 / hidden_dim) ** 0.5)
+#
+#         def forward(self, x):
+#             for layer in self.layers[:-1]:
+#                 x = torch.sin(layer(x))
+#             x = self.layers[-1](x)
+#             return x
+#
+#     def train_sin_net_until_predictions_stop(
+#         train_vecs,
+#         labels,
+#         hidden_dim,
+#         num_hidden_layers,
+#         lr,
+#         max_steps,
+#         test_vecs,
+#         pred_tol=1e-6,
+#         patience=200,
+#         min_steps=200,
+#         device="cpu",
+#     ):
+#         """
+#         Stop condition:
+#           max_abs(preds_t - preds_{t-1}) < pred_tol for `patience` consecutive steps,
+#           after at least `min_steps` steps.
+#
+#         Returns:
+#           model, final_preds (np.ndarray shape (#all_points,)), steps_used (int), last_delta (float)
+#         """
+#         # Torch expects N x d
+#         if train_vecs.shape[0] < train_vecs.shape[1]:
+#             train_vecs = train_vecs.T
+#         N, d = train_vecs.shape
+#
+#         labels = labels.reshape(-1, 1)
+#
+#         x_train = torch.tensor(train_vecs, dtype=torch.float32, device=device)
+#         y_train = torch.tensor(labels, dtype=torch.float32, device=device)
+#
+#         if test_vecs.shape[0] < test_vecs.shape[1]:
+#             test_vecs = test_vecs.T
+#         x_test = torch.tensor(test_vecs, dtype=torch.float32, device=device)
+#
+#         model = SinNet(input_dim=d, hidden_dim=hidden_dim, num_hidden_layers=num_hidden_layers).to(device)
+#
+#         criterion = nn.MSELoss()
+#
+#         # --- custom learning rates per layer = lr / fan_in ---
+#         param_groups = []
+#         for layer in model.layers:
+#             divisor = layer.in_features
+#             layer_lr = lr / divisor
+#             param_groups.append({"params": layer.parameters(), "lr": layer_lr})
+#         optimizer = torch.optim.SGD(param_groups)
+#
+#         prev_preds = None
+#         stable_count = 0
+#         last_delta = float("inf")
+#
+#         for step in range(max_steps):
+#             optimizer.zero_grad()
+#             outputs = model(x_train)
+#             loss = criterion(outputs, y_train)
+#             loss.backward()
+#             optimizer.step()
+#
+#             # compute predictions on all points (train+test)
+#             with torch.no_grad():
+#                 preds = model(x_test).view(-1)  # (num_points,)
+#
+#             if prev_preds is not None:
+#                 last_delta = (preds - prev_preds).abs().max().item()
+#                 if (step + 1) >= min_steps and last_delta < pred_tol:
+#                     stable_count += 1
+#                 else:
+#                     stable_count = 0
+#
+#                 if stable_count >= patience:
+#                     break
+#
+#             prev_preds = preds
+#
+#         steps_used = step + 1
+#
+#         # hard check: did we stop because predictions stabilized?
+#         assert stable_count >= patience, (
+#             f"Ensemble model did not stabilize within max_steps={max_steps}. "
+#             f"Last max_abs_delta={last_delta:.3e}, stable_count={stable_count}."
+#         )
+#
+#         final_preds = preds.detach().cpu().numpy().flatten()
+#         return model, final_preds, steps_used, last_delta
+#
+#     # training plus test on unit circle
+#
+#
+#     N_train = 3
+#     N_test = 5
+#
+#     train_angles = np.linspace(0.5, 2 * np.pi, N_train, endpoint=False)
+#     test_angles = np.linspace(0.0, 2 * np.pi, N_test, endpoint=False)
+#
+#     train_vecs = np.vstack([np.cos(train_angles), np.sin(train_angles)])  # (2, N_train)
+#     test_vecs = np.vstack([np.cos(test_angles), np.sin(test_angles)])     # (2, N_test)
+#
+#     inpt_vecs = np.concatenate([train_vecs, test_vecs], axis=1)           # (2, delta_size)
+#     inpt_angles = np.concatenate([train_angles, test_angles], axis=0)     # (delta_size,)
+#
+#     labels = np.random.uniform(-5, 5, size=N_train)
+#
+#     # index bookkeeping
+#     delta_size = N_train + N_test
+#     is_train = np.zeros(delta_size, dtype=bool)
+#     is_train[:N_train] = True
+#     is_test = ~is_train
+#
+#     # hyperparams
+#
+#     hidden_dim = 30
+#     depth = 2
+#     lr = 0.06
+#     eta = lr
+#
+#     ensemble_size = 12
+#     max_steps = 4000
+#
+#     pred_tol = 1e-5
+#     patience = 30
+#     min_steps = 50
+#
+#     # THEORETICAL mean prediction from tensor code
+#     device = "cpu"
+#     dtype = torch.float64
+#
+#     X = torch.tensor(inpt_vecs, dtype=dtype, device=device)  # (2, delta_size)
+#     n0 = X.shape[0]
+#
+#     C_W = 1.0
+#     C_b = 0.0
+#     lambda_W = 1.0
+#     lambda_b = 0.0
+#
+#     # K^(1), theta^(1) from the picture (with C_W=1 and lambda_W=1)
+#     K_prev = C_b + (C_W / n0) * (X.T @ X)
+#     theta_prev = lambda_b + (lambda_W / n0) * (X.T @ X)
+#
+#     # all other tensors start at 0
+#     zero4 = torch.zeros((delta_size, delta_size, delta_size, delta_size), dtype=dtype, device=device)
+#     V_prev = zero4.clone()
+#     S_prev = zero4.clone()
+#     R_prev = zero4.clone()
+#     T_prev = zero4.clone()
+#     U_prev = zero4.clone()
+#     A_prev = zero4.clone()
+#     B_prev = zero4.clone()
+#     P_prev = zero4.clone()
+#     Q_prev = zero4.clone()
+#     D_prev = zero4.clone()
+#     F_prev = zero4.clone()
+#
+#     # recurse depth-1 times
+#     for _ in range(depth - 1):
+#         theta_prev, K_prev, V_prev, S_prev, R_prev, T_prev, U_prev, A_prev, B_prev, P_prev, Q_prev, D_prev, F_prev = recurse_layer(
+#             theta_prev=theta_prev,
+#             K_prev=K_prev,
+#             V_prev=V_prev,
+#             S_prev=S_prev,
+#             R_prev=R_prev,
+#             T_prev=T_prev,
+#             U_prev=U_prev,
+#             A_prev=A_prev,
+#             B_prev=B_prev,
+#             P_prev=P_prev,
+#             Q_prev=Q_prev,
+#             D_prev=D_prev,
+#             F_prev=F_prev,
+#             C_W=C_W,
+#             lambda_W=lambda_W,
+#             n_prev=hidden_dim,  # n_{L-1}
+#             n_preprev=n0,       # n_0
+#         )
+#
+#     theta_final = theta_prev
+#     K_final = K_prev
+#
+#     # Z tensors are now computed from training block of Htilde_lower (theta)
+#     theta_train = theta_final[:N_train, :N_train] + 1e-9 * torch.eye(N_train, dtype=dtype, device=device)
+#     Z_A, Z_B, Z_IA, Z_IB, Z_IIA, Z_IIB = compute_Z_tensors(theta_train, eta)
+#
+#     y_labels = torch.tensor(labels.reshape(1, -1), dtype=dtype, device=device)  # n_out=1
+#
+#     m_dict = compute_all_m_tensors(
+#         n_out=1,
+#         training_size=N_train,
+#         theta_final=theta_final,
+#         K_final=K_final,
+#         A_final=A_prev,
+#         B_final=B_prev,
+#         P_final=P_prev,
+#         Q_final=Q_prev,
+#         R_final=R_prev,
+#         S_final=S_prev,
+#         T_final=T_prev,
+#         U_final=U_prev,
+#         Z_A=Z_A,
+#         Z_B=Z_B,
+#         Z_IA=Z_IA,
+#         Z_IB=Z_IB,
+#         Z_IIA=Z_IIA,
+#         Z_IIB=Z_IIB,
+#         y_labels=y_labels,
+#     )
+#
+#     mean_pred = compute_mean_output_neurons(
+#         m_NTK=m_dict["m_NTK"],
+#         m_delta_NTK=m_dict["m_delta_NTK"],
+#         m_dNTK=m_dict["m_dNTK"],
+#         m_ddNTK_I=m_dict["m_ddNTK_I"],
+#         m_ddNTK_II=m_dict["m_ddNTK_II"],
+#         H_beta_alpha1=theta_final,
+#         Htilde_lower=theta_final,
+#         n_Lm1=hidden_dim,
+#         training_size=N_train,
+#     ).detach().cpu().numpy().reshape(-1)  # (delta_size,)
+#
+#     # ensemble training until predictions stop changing
+#     ensemble_preds = []
+#     steps_used_list = []
+#     last_delta_list = []
+#
+#     # train_vecs for the trainer is "columns are vectors"
+#     # test_vecs should be all points (train + test) in the same column convention
+#     for _ in range(ensemble_size):
+#         _, preds, steps_used, last_delta = train_sin_net_until_predictions_stop(
+#             train_vecs=train_vecs,
+#             labels=labels,
+#             hidden_dim=hidden_dim,
+#             num_hidden_layers=depth - 1,
+#             lr=lr,
+#             max_steps=max_steps,
+#             test_vecs=inpt_vecs,
+#             pred_tol=pred_tol,
+#             patience=patience,
+#             min_steps=min_steps,
+#             device=device,
+#         )
+#         ensemble_preds.append(preds)
+#         steps_used_list.append(steps_used)
+#         last_delta_list.append(last_delta)
+#
+#     ensemble_preds = np.stack(ensemble_preds, axis=0)  # (E, delta_size)
+#     ensemble_mean = ensemble_preds.mean(axis=0)
+#     ensemble_std = ensemble_preds.std(axis=0)
+#
+#     print(
+#         f"Ensemble early-stop: mean steps={np.mean(steps_used_list):.1f}, "
+#         f"max steps={np.max(steps_used_list)}, "
+#         f"mean last_delta={np.mean(last_delta_list):.3e}, max last_delta={np.max(last_delta_list):.3e}"
+#     )
+#
+#     # Plotting
+#     order = np.argsort(inpt_angles)
+#     angles_sorted = inpt_angles[order]
+#     is_train_sorted = is_train[order]
+#     is_test_sorted = is_test[order]
+#
+#     theory_sorted = mean_pred[order]
+#     ens_mean_sorted = ensemble_mean[order]
+#
+#     plt.figure(figsize=(9, 5))
+#
+#     # THEORY mean: train vs test
+#     plt.scatter(
+#         angles_sorted[is_train_sorted],
+#         theory_sorted[is_train_sorted],
+#         marker="o",
+#         s=90,
+#         label="theory mean (train)",
+#         alpha=0.4
+#     )
+#     plt.scatter(
+#         angles_sorted[is_test_sorted],
+#         theory_sorted[is_test_sorted],
+#         marker="o",
+#         facecolors="none",
+#         edgecolors="black",
+#         s=90,
+#         label="theory mean (test)",
+#         alpha=0.4
+#     )
+#
+#     # ENSEMBLE mean: train vs test
+#     plt.scatter(
+#         angles_sorted[is_train_sorted],
+#         ens_mean_sorted[is_train_sorted],
+#         marker="^",
+#         s=90,
+#         label="ensemble mean (train)",
+#         alpha=0.4
+#     )
+#     plt.scatter(
+#         angles_sorted[is_test_sorted],
+#         ens_mean_sorted[is_test_sorted],
+#         marker="^",
+#         facecolors="none",
+#         edgecolors="black",
+#         s=90,
+#         label="ensemble mean (test)",
+#         alpha=0.4
+#     )
+#
+#     # Training targets
+#     plt.scatter(train_angles, labels, marker="s", s=110, label="training labels", alpha=0.4)
+#
+#     plt.xlabel("angle (rad)")
+#     plt.ylabel("output")
+#     plt.title(f"theory mean vs ensemble mean (N_train={N_train}, N_test={N_test}, width={hidden_dim}, lr={lr})")
+#     plt.legend(loc="best")
+#     plt.tight_layout()
+#     plt.show()
+
 if __name__ == "__main__":
+
     np.random.seed(44)
     torch.manual_seed(44)
     torch.set_num_threads(1)
 
-    # Ensemble code
-    class SinNet(nn.Module):
-        def __init__(self, input_dim, hidden_dim, num_hidden_layers):
-            super(SinNet, self).__init__()
-            layers = []
-
-            # first layer
-            layers.append(nn.Linear(input_dim, hidden_dim, bias=False))
-
-            # rest of hidden layers
-            for _ in range(num_hidden_layers - 1):
-                layers.append(nn.Linear(hidden_dim, hidden_dim, bias=False))
-
-            # output layer (scalar output)
-            layers.append(nn.Linear(hidden_dim, 1, bias=False))
-            self.layers = nn.ModuleList(layers)
-
-            # init as in your Test_three
-            with torch.no_grad():
-                self.layers[0].weight.normal_(0.0, (1 / input_dim) ** 0.5)
-                for layer in self.layers[1:-1]:
-                    layer.weight.normal_(0.0, (1 / hidden_dim) ** 0.5)
-                self.layers[-1].weight.normal_(0.0, (1 / hidden_dim) ** 0.5)
-
-        def forward(self, x):
-            for layer in self.layers[:-1]:
-                x = torch.sin(layer(x))
-            x = self.layers[-1](x)
-            return x
-
-    def train_sin_net_until_predictions_stop(
-        train_vecs,
-        labels,
-        hidden_dim,
-        num_hidden_layers,
-        lr,
-        max_steps,
-        test_vecs,
-        pred_tol=1e-6,
-        patience=200,
-        min_steps=200,
-        device="cpu",
-    ):
-        """
-        Stop condition:
-          max_abs(preds_t - preds_{t-1}) < pred_tol for `patience` consecutive steps,
-          after at least `min_steps` steps.
-
-        Returns:
-          model, final_preds (np.ndarray shape (#all_points,)), steps_used (int), last_delta (float)
-        """
-        # Torch expects N x d
-        if train_vecs.shape[0] < train_vecs.shape[1]:
-            train_vecs = train_vecs.T
-        N, d = train_vecs.shape
-
-        labels = labels.reshape(-1, 1)
-
-        x_train = torch.tensor(train_vecs, dtype=torch.float32, device=device)
-        y_train = torch.tensor(labels, dtype=torch.float32, device=device)
-
-        if test_vecs.shape[0] < test_vecs.shape[1]:
-            test_vecs = test_vecs.T
-        x_test = torch.tensor(test_vecs, dtype=torch.float32, device=device)
-
-        model = SinNet(input_dim=d, hidden_dim=hidden_dim, num_hidden_layers=num_hidden_layers).to(device)
-
-        criterion = nn.MSELoss()
-
-        # --- custom learning rates per layer = lr / fan_in ---
-        param_groups = []
-        for layer in model.layers:
-            divisor = layer.in_features
-            layer_lr = lr / divisor
-            param_groups.append({"params": layer.parameters(), "lr": layer_lr})
-        optimizer = torch.optim.SGD(param_groups)
-
-        prev_preds = None
-        stable_count = 0
-        last_delta = float("inf")
-
-        for step in range(max_steps):
-            optimizer.zero_grad()
-            outputs = model(x_train)
-            loss = criterion(outputs, y_train)
-            loss.backward()
-            optimizer.step()
-
-            # compute predictions on all points (train+test)
-            with torch.no_grad():
-                preds = model(x_test).view(-1)  # (num_points,)
-
-            if prev_preds is not None:
-                last_delta = (preds - prev_preds).abs().max().item()
-                if (step + 1) >= min_steps and last_delta < pred_tol:
-                    stable_count += 1
-                else:
-                    stable_count = 0
-
-                if stable_count >= patience:
-                    break
-
-            prev_preds = preds
-
-        steps_used = step + 1
-
-        # hard check: did we stop because predictions stabilized?
-        assert stable_count >= patience, (
-            f"Ensemble model did not stabilize within max_steps={max_steps}. "
-            f"Last max_abs_delta={last_delta:.3e}, stable_count={stable_count}."
-        )
-
-        final_preds = preds.detach().cpu().numpy().flatten()
-        return model, final_preds, steps_used, last_delta
-
-    # training plus test on unit circle
-
-
+    # -----------------------------
+    # Basic problem setup
+    # -----------------------------
     N_train = 3
     N_test = 5
 
-    train_angles = np.linspace(0.5, 2 * np.pi, N_train, endpoint=False)
-    test_angles = np.linspace(0.0, 2 * np.pi, N_test, endpoint=False)
-
-    train_vecs = np.vstack([np.cos(train_angles), np.sin(train_angles)])  # (2, N_train)
-    test_vecs = np.vstack([np.cos(test_angles), np.sin(test_angles)])     # (2, N_test)
-
-    inpt_vecs = np.concatenate([train_vecs, test_vecs], axis=1)           # (2, delta_size)
-    inpt_angles = np.concatenate([train_angles, test_angles], axis=0)     # (delta_size,)
-
-    labels = np.random.uniform(-5, 5, size=N_train)
-
-    # index bookkeeping
-    delta_size = N_train + N_test
-    is_train = np.zeros(delta_size, dtype=bool)
-    is_train[:N_train] = True
-    is_test = ~is_train
-
-    # hyperparams
-
     hidden_dim = 30
-    depth = 2
+    depth = 3
     lr = 0.06
     eta = lr
-
-    ensemble_size = 12
-    max_steps = 4000
-
-    pred_tol = 1e-5
-    patience = 30
-    min_steps = 50
-
-    # THEORETICAL mean prediction from tensor code
-    device = "cpu"
-    dtype = torch.float64
-
-    X = torch.tensor(inpt_vecs, dtype=dtype, device=device)  # (2, delta_size)
-    n0 = X.shape[0]
 
     C_W = 1.0
     C_b = 0.0
     lambda_W = 1.0
     lambda_b = 0.0
 
-    # K^(1), theta^(1) from the picture (with C_W=1 and lambda_W=1)
+    device = "cpu"
+    dtype = torch.float64
+
+    # -----------------------------
+    # Build train and test inputs on the unit circle
+    # -----------------------------
+    train_angles = np.linspace(0.5, 2 * np.pi, N_train, endpoint=False)
+    test_angles = np.linspace(0.0, 2 * np.pi, N_test, endpoint=False)
+
+    train_vecs = np.vstack([np.cos(train_angles), np.sin(train_angles)])   # shape (2, N_train)
+    test_vecs = np.vstack([np.cos(test_angles), np.sin(test_angles)])      # shape (2, N_test)
+
+    inpt_vecs = np.concatenate([train_vecs, test_vecs], axis=1)            # shape (2, delta_size)
+
+    labels = np.random.uniform(-5, 5, size=N_train)
+
+    delta_size = N_train + N_test
+
+    # -----------------------------
+    # Print only basic parameters
+    # -----------------------------
+    print("Running NTK mean prediction computation")
+    print(f"training size   = {N_train}")
+    print(f"test size       = {N_test}")
+    print(f"delta size      = {delta_size}")
+    print(f"input dimension = {inpt_vecs.shape[0]}")
+    print(f"hidden width    = {hidden_dim}")
+    print(f"depth           = {depth}")
+    print(f"learning rate   = {lr}")
+    print(f"eta             = {eta}")
+    print(f"C_W             = {C_W}")
+    print(f"lambda_W        = {lambda_W}")
+    print()
+
+    # -----------------------------
+    # Initial K and theta
+    # K^(1) = (C_W / n0) X^T X
+    # theta^(1) = (lambda_W / n0) X^T X
+    # -----------------------------
+    X = torch.tensor(inpt_vecs, dtype=dtype, device=device)
+    n0 = X.shape[0]
+
     K_prev = C_b + (C_W / n0) * (X.T @ X)
     theta_prev = lambda_b + (lambda_W / n0) * (X.T @ X)
 
-    # all other tensors start at 0
-    zero4 = torch.zeros((delta_size, delta_size, delta_size, delta_size), dtype=dtype, device=device)
+    # -----------------------------
+    # All other tensors start at zero
+    # -----------------------------
+    zero4 = torch.zeros(
+        (delta_size, delta_size, delta_size, delta_size),
+        dtype=dtype,
+        device=device
+    )
+
     V_prev = zero4.clone()
     S_prev = zero4.clone()
     R_prev = zero4.clone()
@@ -1924,9 +2175,25 @@ if __name__ == "__main__":
     D_prev = zero4.clone()
     F_prev = zero4.clone()
 
-    # recurse depth-1 times
+    # -----------------------------
+    # Recurse through layers
+    # -----------------------------
     for _ in range(depth - 1):
-        theta_prev, K_prev, V_prev, S_prev, R_prev, T_prev, U_prev, A_prev, B_prev, P_prev, Q_prev, D_prev, F_prev = recurse_layer(
+        (
+            theta_prev,
+            K_prev,
+            V_prev,
+            S_prev,
+            R_prev,
+            T_prev,
+            U_prev,
+            A_prev,
+            B_prev,
+            P_prev,
+            Q_prev,
+            D_prev,
+            F_prev,
+        ) = recurse_layer(
             theta_prev=theta_prev,
             K_prev=K_prev,
             V_prev=V_prev,
@@ -1942,19 +2209,32 @@ if __name__ == "__main__":
             F_prev=F_prev,
             C_W=C_W,
             lambda_W=lambda_W,
-            n_prev=hidden_dim,  # n_{L-1}
-            n_preprev=n0,       # n_0
+            n_prev=hidden_dim,
+            n_preprev=n0,
         )
 
     theta_final = theta_prev
     K_final = K_prev
 
-    # Z tensors are now computed from training block of Htilde_lower (theta)
-    theta_train = theta_final[:N_train, :N_train] + 1e-9 * torch.eye(N_train, dtype=dtype, device=device)
+    # -----------------------------
+    # Compute Z tensors from the training block of theta
+    # -----------------------------
+    theta_train = theta_final[:N_train, :N_train] + 1e-9 * torch.eye(
+        N_train, dtype=dtype, device=device
+    )
+
     Z_A, Z_B, Z_IA, Z_IB, Z_IIA, Z_IIB = compute_Z_tensors(theta_train, eta)
 
-    y_labels = torch.tensor(labels.reshape(1, -1), dtype=dtype, device=device)  # n_out=1
+    # -----------------------------
+    # Labels for the m-recursions
+    # n_out = 1 because scalar output network
+    # -----------------------------
+    y_labels = torch.tensor(labels.reshape(1, -1), dtype=dtype, device=device)
 
+    # -----------------------------
+    # Compute m tensors only transiently
+    # They are not printed or saved
+    # -----------------------------
     m_dict = compute_all_m_tensors(
         n_out=1,
         training_size=N_train,
@@ -1987,100 +2267,68 @@ if __name__ == "__main__":
         Htilde_lower=theta_final,
         n_Lm1=hidden_dim,
         training_size=N_train,
-    ).detach().cpu().numpy().reshape(-1)  # (delta_size,)
+    ).detach().cpu().numpy().reshape(-1)
 
-    # ensemble training until predictions stop changing
-    ensemble_preds = []
-    steps_used_list = []
-    last_delta_list = []
+    # Optional: free the intermediate dictionary immediately
+    del m_dict
 
-    # train_vecs for the trainer is "columns are vectors"
-    # test_vecs should be all points (train + test) in the same column convention
-    for _ in range(ensemble_size):
-        _, preds, steps_used, last_delta = train_sin_net_until_predictions_stop(
-            train_vecs=train_vecs,
-            labels=labels,
-            hidden_dim=hidden_dim,
-            num_hidden_layers=depth - 1,
-            lr=lr,
-            max_steps=max_steps,
-            test_vecs=inpt_vecs,
-            pred_tol=pred_tol,
-            patience=patience,
-            min_steps=min_steps,
-            device=device,
-        )
-        ensemble_preds.append(preds)
-        steps_used_list.append(steps_used)
-        last_delta_list.append(last_delta)
+    # -----------------------------
+    # Split predictions into train/test parts
+    # -----------------------------
+    train_pred = mean_pred[:N_train]
+    test_pred = mean_pred[N_train:]
 
-    ensemble_preds = np.stack(ensemble_preds, axis=0)  # (E, delta_size)
-    ensemble_mean = ensemble_preds.mean(axis=0)
-    ensemble_std = ensemble_preds.std(axis=0)
+    # -----------------------------
+    # Plot only:
+    #   - NTK mean prediction on train points
+    #   - NTK mean prediction on test points
+    #   - training labels
+    # No connecting lines
+    # -----------------------------
+    plt.figure(figsize=(8, 5))
 
-    print(
-        f"Ensemble early-stop: mean steps={np.mean(steps_used_list):.1f}, "
-        f"max steps={np.max(steps_used_list)}, "
-        f"mean last_delta={np.mean(last_delta_list):.3e}, max last_delta={np.max(last_delta_list):.3e}"
+    # training labels
+    plt.scatter(
+        train_angles,
+        labels,
+        marker="s",
+        s=110,
+        alpha=0.6,
+        label="training labels"
     )
 
-    # Plotting
-    order = np.argsort(inpt_angles)
-    angles_sorted = inpt_angles[order]
-    is_train_sorted = is_train[order]
-    is_test_sorted = is_test[order]
-
-    theory_sorted = mean_pred[order]
-    ens_mean_sorted = ensemble_mean[order]
-
-    plt.figure(figsize=(9, 5))
-
-    # THEORY mean: train vs test
+    # NTK mean prediction on training points
     plt.scatter(
-        angles_sorted[is_train_sorted],
-        theory_sorted[is_train_sorted],
+        train_angles,
+        train_pred,
         marker="o",
         s=90,
-        label="theory mean (train)",
-        alpha=0.4
+        alpha=0.6,
+        label="NTK mean prediction (train)"
     )
+
+    # NTK mean prediction on test points
     plt.scatter(
-        angles_sorted[is_test_sorted],
-        theory_sorted[is_test_sorted],
+        test_angles,
+        test_pred,
         marker="o",
+        s=90,
+        alpha=0.6,
         facecolors="none",
         edgecolors="black",
-        s=90,
-        label="theory mean (test)",
-        alpha=0.4
+        label="NTK mean prediction (test)"
     )
-
-    # ENSEMBLE mean: train vs test
-    plt.scatter(
-        angles_sorted[is_train_sorted],
-        ens_mean_sorted[is_train_sorted],
-        marker="^",
-        s=90,
-        label="ensemble mean (train)",
-        alpha=0.4
-    )
-    plt.scatter(
-        angles_sorted[is_test_sorted],
-        ens_mean_sorted[is_test_sorted],
-        marker="^",
-        facecolors="none",
-        edgecolors="black",
-        s=90,
-        label="ensemble mean (test)",
-        alpha=0.4
-    )
-
-    # Training targets
-    plt.scatter(train_angles, labels, marker="s", s=110, label="training labels", alpha=0.4)
 
     plt.xlabel("angle (rad)")
     plt.ylabel("output")
-    plt.title(f"theory mean vs ensemble mean (N_train={N_train}, N_test={N_test}, width={hidden_dim}, lr={lr})")
+    plt.title(
+        f"NTK mean prediction\n"
+        f"N_train={N_train}, N_test={N_test}, width={hidden_dim}, depth={depth}, lr={lr}"
+    )
     plt.legend(loc="best")
     plt.tight_layout()
-    plt.show()
+    output_path = f"ntk_prediction_Ntrain{N_train}_Ntest{N_test}_width{hidden_dim}_depth{depth}_lr{lr}.png"
+    plt.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"Saved plot to {output_path}")
