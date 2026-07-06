@@ -2087,101 +2087,536 @@ def compute_mean_output_neurons(
 #     plt.tight_layout()
 #     plt.show()
 
+# if __name__ == "__main__":
+#
+#     np.random.seed(44)
+#     torch.manual_seed(44)
+#     torch.set_num_threads(1)
+#
+#     # -----------------------------
+#     # Basic problem setup
+#     # -----------------------------
+#     N_train = 3
+#     N_test = 5
+#
+#     hidden_dim = 30
+#     depth = 3
+#     lr = 0.06
+#     eta = lr
+#
+#     C_W = 1.0
+#     C_b = 0.0
+#     lambda_W = 1.0
+#     lambda_b = 0.0
+#
+#     device = "cpu"
+#     dtype = torch.float64
+#
+#     # -----------------------------
+#     # Build train and test inputs on the unit circle
+#     # -----------------------------
+#     train_angles = np.linspace(0.5, 2 * np.pi, N_train, endpoint=False)
+#     test_angles = np.linspace(0.0, 2 * np.pi, N_test, endpoint=False)
+#
+#     train_vecs = np.vstack([np.cos(train_angles), np.sin(train_angles)])   # shape (2, N_train)
+#     test_vecs = np.vstack([np.cos(test_angles), np.sin(test_angles)])      # shape (2, N_test)
+#
+#     inpt_vecs = np.concatenate([train_vecs, test_vecs], axis=1)            # shape (2, delta_size)
+#
+#     labels = np.random.uniform(-5, 5, size=N_train)
+#
+#     delta_size = N_train + N_test
+#
+#     # -----------------------------
+#     # Print only basic parameters
+#     # -----------------------------
+#     print("Running NTK mean prediction computation")
+#     print(f"training size   = {N_train}")
+#     print(f"test size       = {N_test}")
+#     print(f"delta size      = {delta_size}")
+#     print(f"input dimension = {inpt_vecs.shape[0]}")
+#     print(f"hidden width    = {hidden_dim}")
+#     print(f"depth           = {depth}")
+#     print(f"learning rate   = {lr}")
+#     print(f"eta             = {eta}")
+#     print(f"C_W             = {C_W}")
+#     print(f"lambda_W        = {lambda_W}")
+#     print()
+#
+#     # -----------------------------
+#     # Initial K and theta
+#     # K^(1) = (C_W / n0) X^T X
+#     # theta^(1) = (lambda_W / n0) X^T X
+#     # -----------------------------
+#     X = torch.tensor(inpt_vecs, dtype=dtype, device=device)
+#     n0 = X.shape[0]
+#
+#     K_prev = C_b + (C_W / n0) * (X.T @ X)
+#     theta_prev = lambda_b + (lambda_W / n0) * (X.T @ X)
+#
+#     # -----------------------------
+#     # All other tensors start at zero
+#     # -----------------------------
+#     zero4 = torch.zeros(
+#         (delta_size, delta_size, delta_size, delta_size),
+#         dtype=dtype,
+#         device=device
+#     )
+#
+#     V_prev = zero4.clone()
+#     S_prev = zero4.clone()
+#     R_prev = zero4.clone()
+#     T_prev = zero4.clone()
+#     U_prev = zero4.clone()
+#     A_prev = zero4.clone()
+#     B_prev = zero4.clone()
+#     P_prev = zero4.clone()
+#     Q_prev = zero4.clone()
+#     D_prev = zero4.clone()
+#     F_prev = zero4.clone()
+#
+#     # -----------------------------
+#     # Recurse through layers
+#     # -----------------------------
+#     for _ in range(depth - 1):
+#         (
+#             theta_prev,
+#             K_prev,
+#             V_prev,
+#             S_prev,
+#             R_prev,
+#             T_prev,
+#             U_prev,
+#             A_prev,
+#             B_prev,
+#             P_prev,
+#             Q_prev,
+#             D_prev,
+#             F_prev,
+#         ) = recurse_layer(
+#             theta_prev=theta_prev,
+#             K_prev=K_prev,
+#             V_prev=V_prev,
+#             S_prev=S_prev,
+#             R_prev=R_prev,
+#             T_prev=T_prev,
+#             U_prev=U_prev,
+#             A_prev=A_prev,
+#             B_prev=B_prev,
+#             P_prev=P_prev,
+#             Q_prev=Q_prev,
+#             D_prev=D_prev,
+#             F_prev=F_prev,
+#             C_W=C_W,
+#             lambda_W=lambda_W,
+#             n_prev=hidden_dim,
+#             n_preprev=n0,
+#         )
+#
+#     theta_final = theta_prev
+#     K_final = K_prev
+#
+#     # -----------------------------
+#     # Compute Z tensors from the training block of theta
+#     # -----------------------------
+#     theta_train = theta_final[:N_train, :N_train] + 1e-9 * torch.eye(
+#         N_train, dtype=dtype, device=device
+#     )
+#
+#     Z_A, Z_B, Z_IA, Z_IB, Z_IIA, Z_IIB = compute_Z_tensors(theta_train, eta)
+#
+#     # -----------------------------
+#     # Labels for the m-recursions
+#     # n_out = 1 because scalar output network
+#     # -----------------------------
+#     y_labels = torch.tensor(labels.reshape(1, -1), dtype=dtype, device=device)
+#
+#     # -----------------------------
+#     # Compute m tensors only transiently
+#     # They are not printed or saved
+#     # -----------------------------
+#     m_dict = compute_all_m_tensors(
+#         n_out=1,
+#         training_size=N_train,
+#         theta_final=theta_final,
+#         K_final=K_final,
+#         A_final=A_prev,
+#         B_final=B_prev,
+#         P_final=P_prev,
+#         Q_final=Q_prev,
+#         R_final=R_prev,
+#         S_final=S_prev,
+#         T_final=T_prev,
+#         U_final=U_prev,
+#         Z_A=Z_A,
+#         Z_B=Z_B,
+#         Z_IA=Z_IA,
+#         Z_IB=Z_IB,
+#         Z_IIA=Z_IIA,
+#         Z_IIB=Z_IIB,
+#         y_labels=y_labels,
+#     )
+#
+#     mean_pred = compute_mean_output_neurons(
+#         m_NTK=m_dict["m_NTK"],
+#         m_delta_NTK=m_dict["m_delta_NTK"],
+#         m_dNTK=m_dict["m_dNTK"],
+#         m_ddNTK_I=m_dict["m_ddNTK_I"],
+#         m_ddNTK_II=m_dict["m_ddNTK_II"],
+#         H_beta_alpha1=theta_final,
+#         Htilde_lower=theta_final,
+#         n_Lm1=hidden_dim,
+#         training_size=N_train,
+#     ).detach().cpu().numpy().reshape(-1)
+#
+#     # Optional: free the intermediate dictionary immediately
+#     del m_dict
+#
+#     # -----------------------------
+#     # Split predictions into train/test parts
+#     # -----------------------------
+#     train_pred = mean_pred[:N_train]
+#     test_pred = mean_pred[N_train:]
+#
+#     # -----------------------------
+#     # Plot only:
+#     #   - NTK mean prediction on train points
+#     #   - NTK mean prediction on test points
+#     #   - training labels
+#     # No connecting lines
+#     # -----------------------------
+#     plt.figure(figsize=(8, 5))
+#
+#     # training labels
+#     plt.scatter(
+#         train_angles,
+#         labels,
+#         marker="s",
+#         s=110,
+#         alpha=0.6,
+#         label="training labels"
+#     )
+#
+#     # NTK mean prediction on training points
+#     plt.scatter(
+#         train_angles,
+#         train_pred,
+#         marker="o",
+#         s=90,
+#         alpha=0.6,
+#         label="NTK mean prediction (train)"
+#     )
+#
+#     # NTK mean prediction on test points
+#     plt.scatter(
+#         test_angles,
+#         test_pred,
+#         marker="o",
+#         s=90,
+#         alpha=0.6,
+#         facecolors="none",
+#         edgecolors="black",
+#         label="NTK mean prediction (test)"
+#     )
+#
+#     plt.xlabel("angle (rad)")
+#     plt.ylabel("output")
+#     plt.title(
+#         f"NTK mean prediction\n"
+#         f"N_train={N_train}, N_test={N_test}, width={hidden_dim}, depth={depth}, lr={lr}"
+#     )
+#     plt.legend(loc="best")
+#     plt.tight_layout()
+#     output_path = f"ntk_prediction_Ntrain{N_train}_Ntest{N_test}_width{hidden_dim}_depth{depth}_lr{lr}.png"
+#     plt.savefig(output_path, dpi=300, bbox_inches="tight")
+#     plt.close()
+#
+#     print(f"Saved plot to {output_path}")
+
+
 if __name__ == "__main__":
 
-    np.random.seed(44)
-    torch.manual_seed(44)
-    torch.set_num_threads(1)
 
     # -----------------------------
-    # Basic problem setup
+    # Reproducibility / Killarney setup
     # -----------------------------
-    N_train = 3
-    N_test = 5
+    BASE_SEED = 44
+    np.random.seed(BASE_SEED)
+    torch.manual_seed(BASE_SEED)
 
-    hidden_dim = 30
-    depth = 3
-    lr = 0.06
-    eta = lr
-
-    C_W = 1.0
-    C_b = 0.0
-    lambda_W = 1.0
-    lambda_b = 0.0
+    # Use SLURM CPU allocation if available; otherwise use 1 thread
+    torch.set_num_threads(int(os.environ.get("SLURM_CPUS_PER_TASK", "1")))
 
     device = "cpu"
     dtype = torch.float64
 
     # -----------------------------
-    # Build train and test inputs on the unit circle
+    # Fixed constants
     # -----------------------------
-    train_angles = np.linspace(0.5, 2 * np.pi, N_train, endpoint=False)
-    test_angles = np.linspace(0.0, 2 * np.pi, N_test, endpoint=False)
+    C_W = 1.0
+    C_b = 0.0
+    lambda_W = 1.0
+    lambda_b = 0.0
 
-    train_vecs = np.vstack([np.cos(train_angles), np.sin(train_angles)])   # shape (2, N_train)
-    test_vecs = np.vstack([np.cos(test_angles), np.sin(test_angles)])      # shape (2, N_test)
-
-    inpt_vecs = np.concatenate([train_vecs, test_vecs], axis=1)            # shape (2, delta_size)
-
-    labels = np.random.uniform(-5, 5, size=N_train)
-
-    delta_size = N_train + N_test
+    lr = 0.06
+    eta = lr
 
     # -----------------------------
-    # Print only basic parameters
+    # Choose the configurations you want to run
     # -----------------------------
-    print("Running NTK mean prediction computation")
-    print(f"training size   = {N_train}")
-    print(f"test size       = {N_test}")
-    print(f"delta size      = {delta_size}")
-    print(f"input dimension = {inpt_vecs.shape[0]}")
-    print(f"hidden width    = {hidden_dim}")
-    print(f"depth           = {depth}")
-    print(f"learning rate   = {lr}")
-    print(f"eta             = {eta}")
-    print(f"C_W             = {C_W}")
-    print(f"lambda_W        = {lambda_W}")
-    print()
+    CONFIGS = [
+        {"N_train": 10, "N_test": 10,  "hidden_dim": 100,  "depth": 2},
+        {"N_train": 20, "N_test": 10, "hidden_dim": 100, "depth": 2},
+        {"N_train": 30, "N_test": 10, "hidden_dim": 100, "depth": 2},
+        {"N_train": 50, "N_test": 10, "hidden_dim": 100, "depth": 2},
+    ]
+
+    output_dir = "C:\\Users\\alexm\\Downloads"
+    os.makedirs(output_dir, exist_ok=True)
 
     # -----------------------------
-    # Initial K and theta
-    # K^(1) = (C_W / n0) X^T X
-    # theta^(1) = (lambda_W / n0) X^T X
+    # Helper function for one run
     # -----------------------------
-    X = torch.tensor(inpt_vecs, dtype=dtype, device=device)
-    n0 = X.shape[0]
+    def run_one_config(config, config_id):
+        N_train = config["N_train"]
+        N_test = config["N_test"]
+        hidden_dim = config["hidden_dim"]
+        depth = config["depth"]
 
-    K_prev = C_b + (C_W / n0) * (X.T @ X)
-    theta_prev = lambda_b + (lambda_W / n0) * (X.T @ X)
+        delta_size = N_train + N_test
 
-    # -----------------------------
-    # All other tensors start at zero
-    # -----------------------------
-    zero4 = torch.zeros(
-        (delta_size, delta_size, delta_size, delta_size),
-        dtype=dtype,
-        device=device
-    )
+        # Use a different but deterministic seed for each config
+        rng = np.random.default_rng(BASE_SEED + config_id)
 
-    V_prev = zero4.clone()
-    S_prev = zero4.clone()
-    R_prev = zero4.clone()
-    T_prev = zero4.clone()
-    U_prev = zero4.clone()
-    A_prev = zero4.clone()
-    B_prev = zero4.clone()
-    P_prev = zero4.clone()
-    Q_prev = zero4.clone()
-    D_prev = zero4.clone()
-    F_prev = zero4.clone()
+        # -----------------------------
+        # Build train and test inputs on the unit circle
+        # -----------------------------
+        train_angles = np.linspace(0.5, 2 * np.pi, N_train, endpoint=False)
+        test_angles = np.linspace(0.0, 2 * np.pi, N_test, endpoint=False)
 
-    # -----------------------------
-    # Recurse through layers
-    # -----------------------------
-    for _ in range(depth - 1):
-        (
-            theta_prev,
+        train_vecs = np.vstack([np.cos(train_angles), np.sin(train_angles)])
+        test_vecs = np.vstack([np.cos(test_angles), np.sin(test_angles)])
+
+        inpt_vecs = np.concatenate([train_vecs, test_vecs], axis=1)
+
+        labels = rng.uniform(-5, 5, size=N_train)
+
+        # -----------------------------
+        # Print only basic parameters
+        # -----------------------------
+        print("=" * 70)
+        print(f"Running config {config_id}")
+        print(f"training size   = {N_train}")
+        print(f"test size       = {N_test}")
+        print(f"delta size      = {delta_size}")
+        print(f"input dimension = {inpt_vecs.shape[0]}")
+        print(f"hidden width    = {hidden_dim}")
+        print(f"depth           = {depth}")
+        print(f"learning rate   = {lr}")
+        print(f"eta             = {eta}")
+        print(f"C_W             = {C_W}")
+        print(f"lambda_W        = {lambda_W}")
+        print("=" * 70, flush=True)
+
+        # -----------------------------
+        # Initial K and theta
+        # -----------------------------
+        X = torch.tensor(inpt_vecs, dtype=dtype, device=device)
+        n0 = X.shape[0]
+
+        K_prev = C_b + (C_W / n0) * (X.T @ X)
+        theta_prev = lambda_b + (lambda_W / n0) * (X.T @ X)
+
+        # -----------------------------
+        # All other tensors start at zero
+        # -----------------------------
+        zero4 = torch.zeros(
+            (delta_size, delta_size, delta_size, delta_size),
+            dtype=dtype,
+            device=device,
+        )
+
+        V_prev = zero4.clone()
+        S_prev = zero4.clone()
+        R_prev = zero4.clone()
+        T_prev = zero4.clone()
+        U_prev = zero4.clone()
+        A_prev = zero4.clone()
+        B_prev = zero4.clone()
+        P_prev = zero4.clone()
+        Q_prev = zero4.clone()
+        D_prev = zero4.clone()
+        F_prev = zero4.clone()
+
+        # -----------------------------
+        # Recurse through layers
+        # -----------------------------
+        for layer_idx in range(depth - 1):
+            if layer_idx == 0:
+                n_preprev = n0
+            else:
+                n_preprev = hidden_dim
+
+            (
+                theta_prev,
+                K_prev,
+                V_prev,
+                S_prev,
+                R_prev,
+                T_prev,
+                U_prev,
+                A_prev,
+                B_prev,
+                P_prev,
+                Q_prev,
+                D_prev,
+                F_prev,
+            ) = recurse_layer(
+                theta_prev=theta_prev,
+                K_prev=K_prev,
+                V_prev=V_prev,
+                S_prev=S_prev,
+                R_prev=R_prev,
+                T_prev=T_prev,
+                U_prev=U_prev,
+                A_prev=A_prev,
+                B_prev=B_prev,
+                P_prev=P_prev,
+                Q_prev=Q_prev,
+                D_prev=D_prev,
+                F_prev=F_prev,
+                C_W=C_W,
+                lambda_W=lambda_W,
+                n_prev=hidden_dim,
+                n_preprev=n_preprev,
+            )
+
+        theta_final = theta_prev
+        K_final = K_prev
+
+        # -----------------------------
+        # Compute Z tensors from training block of theta
+        # -----------------------------
+        theta_train = theta_final[:N_train, :N_train] + 1e-9 * torch.eye(
+            N_train, dtype=dtype, device=device
+        )
+
+        Z_A, Z_B, Z_IA, Z_IB, Z_IIA, Z_IIB = compute_Z_tensors(theta_train, eta)
+
+        y_labels = torch.tensor(labels.reshape(1, -1), dtype=dtype, device=device)
+
+        # -----------------------------
+        # Compute m tensors transiently only
+        # Not printed and not saved
+        # -----------------------------
+        m_dict = compute_all_m_tensors(
+            n_out=1,
+            training_size=N_train,
+            theta_final=theta_final,
+            K_final=K_final,
+            A_final=A_prev,
+            B_final=B_prev,
+            P_final=P_prev,
+            Q_final=Q_prev,
+            R_final=R_prev,
+            S_final=S_prev,
+            T_final=T_prev,
+            U_final=U_prev,
+            Z_A=Z_A,
+            Z_B=Z_B,
+            Z_IA=Z_IA,
+            Z_IB=Z_IB,
+            Z_IIA=Z_IIA,
+            Z_IIB=Z_IIB,
+            y_labels=y_labels,
+        )
+
+        mean_pred = compute_mean_output_neurons(
+            m_NTK=m_dict["m_NTK"],
+            m_delta_NTK=m_dict["m_delta_NTK"],
+            m_dNTK=m_dict["m_dNTK"],
+            m_ddNTK_I=m_dict["m_ddNTK_I"],
+            m_ddNTK_II=m_dict["m_ddNTK_II"],
+            H_beta_alpha1=theta_final,
+            Htilde_lower=theta_final,
+            n_Lm1=hidden_dim,
+            training_size=N_train,
+        ).detach().cpu().numpy().reshape(-1)
+
+        del m_dict
+
+        # -----------------------------
+        # Split predictions into train/test parts
+        # -----------------------------
+        train_pred = mean_pred[:N_train]
+        test_pred = mean_pred[N_train:]
+
+        # -----------------------------
+        # Plot only:
+        #   - training labels
+        #   - NTK mean prediction on train points
+        #   - NTK mean prediction on test points
+        # -----------------------------
+        plt.figure(figsize=(8, 5))
+
+        plt.scatter(
+            train_angles,
+            labels,
+            marker="s",
+            s=110,
+            alpha=0.6,
+            label="training labels",
+        )
+
+        plt.scatter(
+            train_angles,
+            train_pred,
+            marker="o",
+            s=90,
+            alpha=0.6,
+            label="NTK mean prediction (train)",
+        )
+
+        plt.scatter(
+            test_angles,
+            test_pred,
+            marker="o",
+            s=90,
+            alpha=0.6,
+            facecolors="none",
+            edgecolors="black",
+            label="NTK mean prediction (test)",
+        )
+
+        plt.xlabel("angle (rad)")
+        plt.ylabel("output")
+        plt.title(
+            f"NTK mean prediction\n"
+            f"N_train={N_train}, N_test={N_test}, "
+            f"width={hidden_dim}, depth={depth}, lr={lr}"
+        )
+        plt.legend(loc="best")
+        plt.tight_layout()
+
+        output_path = os.path.join(
+            output_dir,
+            f"ntk_prediction_cfg{config_id}_"
+            f"Ntrain{N_train}_Ntest{N_test}_"
+            f"width{hidden_dim}_depth{depth}_lr{lr}.png",
+        )
+
+        plt.savefig(output_path, dpi=300, bbox_inches="tight")
+        plt.close()
+
+        print(f"Saved plot to {output_path}", flush=True)
+
+        # Delete large tensors before moving to the next config
+        del (
+            X,
             K_prev,
+            theta_prev,
+            K_final,
+            theta_final,
             V_prev,
             S_prev,
             R_prev,
@@ -2193,142 +2628,18 @@ if __name__ == "__main__":
             Q_prev,
             D_prev,
             F_prev,
-        ) = recurse_layer(
-            theta_prev=theta_prev,
-            K_prev=K_prev,
-            V_prev=V_prev,
-            S_prev=S_prev,
-            R_prev=R_prev,
-            T_prev=T_prev,
-            U_prev=U_prev,
-            A_prev=A_prev,
-            B_prev=B_prev,
-            P_prev=P_prev,
-            Q_prev=Q_prev,
-            D_prev=D_prev,
-            F_prev=F_prev,
-            C_W=C_W,
-            lambda_W=lambda_W,
-            n_prev=hidden_dim,
-            n_preprev=n0,
+            Z_A,
+            Z_B,
+            Z_IA,
+            Z_IB,
+            Z_IIA,
+            Z_IIB,
         )
 
-    theta_final = theta_prev
-    K_final = K_prev
-
     # -----------------------------
-    # Compute Z tensors from the training block of theta
+    # Run all configs
     # -----------------------------
-    theta_train = theta_final[:N_train, :N_train] + 1e-9 * torch.eye(
-        N_train, dtype=dtype, device=device
-    )
+    for config_id, config in enumerate(CONFIGS):
+        run_one_config(config, config_id)
 
-    Z_A, Z_B, Z_IA, Z_IB, Z_IIA, Z_IIB = compute_Z_tensors(theta_train, eta)
-
-    # -----------------------------
-    # Labels for the m-recursions
-    # n_out = 1 because scalar output network
-    # -----------------------------
-    y_labels = torch.tensor(labels.reshape(1, -1), dtype=dtype, device=device)
-
-    # -----------------------------
-    # Compute m tensors only transiently
-    # They are not printed or saved
-    # -----------------------------
-    m_dict = compute_all_m_tensors(
-        n_out=1,
-        training_size=N_train,
-        theta_final=theta_final,
-        K_final=K_final,
-        A_final=A_prev,
-        B_final=B_prev,
-        P_final=P_prev,
-        Q_final=Q_prev,
-        R_final=R_prev,
-        S_final=S_prev,
-        T_final=T_prev,
-        U_final=U_prev,
-        Z_A=Z_A,
-        Z_B=Z_B,
-        Z_IA=Z_IA,
-        Z_IB=Z_IB,
-        Z_IIA=Z_IIA,
-        Z_IIB=Z_IIB,
-        y_labels=y_labels,
-    )
-
-    mean_pred = compute_mean_output_neurons(
-        m_NTK=m_dict["m_NTK"],
-        m_delta_NTK=m_dict["m_delta_NTK"],
-        m_dNTK=m_dict["m_dNTK"],
-        m_ddNTK_I=m_dict["m_ddNTK_I"],
-        m_ddNTK_II=m_dict["m_ddNTK_II"],
-        H_beta_alpha1=theta_final,
-        Htilde_lower=theta_final,
-        n_Lm1=hidden_dim,
-        training_size=N_train,
-    ).detach().cpu().numpy().reshape(-1)
-
-    # Optional: free the intermediate dictionary immediately
-    del m_dict
-
-    # -----------------------------
-    # Split predictions into train/test parts
-    # -----------------------------
-    train_pred = mean_pred[:N_train]
-    test_pred = mean_pred[N_train:]
-
-    # -----------------------------
-    # Plot only:
-    #   - NTK mean prediction on train points
-    #   - NTK mean prediction on test points
-    #   - training labels
-    # No connecting lines
-    # -----------------------------
-    plt.figure(figsize=(8, 5))
-
-    # training labels
-    plt.scatter(
-        train_angles,
-        labels,
-        marker="s",
-        s=110,
-        alpha=0.6,
-        label="training labels"
-    )
-
-    # NTK mean prediction on training points
-    plt.scatter(
-        train_angles,
-        train_pred,
-        marker="o",
-        s=90,
-        alpha=0.6,
-        label="NTK mean prediction (train)"
-    )
-
-    # NTK mean prediction on test points
-    plt.scatter(
-        test_angles,
-        test_pred,
-        marker="o",
-        s=90,
-        alpha=0.6,
-        facecolors="none",
-        edgecolors="black",
-        label="NTK mean prediction (test)"
-    )
-
-    plt.xlabel("angle (rad)")
-    plt.ylabel("output")
-    plt.title(
-        f"NTK mean prediction\n"
-        f"N_train={N_train}, N_test={N_test}, width={hidden_dim}, depth={depth}, lr={lr}"
-    )
-    plt.legend(loc="best")
-    plt.tight_layout()
-    output_path = f"ntk_prediction_Ntrain{N_train}_Ntest{N_test}_width{hidden_dim}_depth{depth}_lr{lr}.png"
-    plt.savefig(output_path, dpi=300, bbox_inches="tight")
-    plt.close()
-
-    print(f"Saved plot to {output_path}")
+    print("All NTK prediction plots finished.", flush=True)
