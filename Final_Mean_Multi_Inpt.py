@@ -2365,13 +2365,10 @@ if __name__ == "__main__":
     # Choose the configurations you want to run
     # -----------------------------
     CONFIGS = [
-        {"N_train": 10, "N_test": 10,  "hidden_dim": 100,  "depth": 2},
-        {"N_train": 20, "N_test": 10, "hidden_dim": 100, "depth": 2},
-        {"N_train": 30, "N_test": 10, "hidden_dim": 100, "depth": 2},
-        {"N_train": 50, "N_test": 10, "hidden_dim": 100, "depth": 2},
+        {"N_train": 10, "N_test": 10,  "hidden_dim": 100,  "depth": 2}
     ]
 
-    output_dir = "C:\\Users\\alexm\\Downloads"
+    output_dir = "ntk_prediction_plots"
     os.makedirs(output_dir, exist_ok=True)
 
     # -----------------------------
